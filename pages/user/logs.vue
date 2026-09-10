@@ -18,9 +18,11 @@
 <script>
 	import {
 		clearAuthCookie,
-		getAuthHeader,
 		isLoginRequiredHtml
 	} from '@/utils/auth.js'
+	import {
+		request
+	} from '@/utils/request.js'
 	import {
 		buildPageUrl,
 		parseUserLogs
@@ -81,10 +83,10 @@
 				}
 				const url = this.getRequestUrl()
 				this.loading = true
-				uni.request({
+				request({
 					url,
-					header: getAuthHeader(),
-					success: res => {
+					silent: true
+				}).then(res => {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html)) {
 							return this.goLogin()
@@ -97,15 +99,12 @@
 						this.nextPageUrl = data.nextPageUrl
 						this.totalPage = data.totalPage || (this.nextPageUrl ? this.page + 1 : this.page)
 						this.status = this.page < this.totalPage ? 'more' : 'noMore'
-					},
-					fail: () => {
+				}).catch(() => {
 						if (this.page > 1) this.page--
 						this.status = 'more'
-					},
-					complete: () => {
+				}).then(() => {
 						this.loading = false
 						uni.stopPullDownRefresh()
-					}
 				})
 			},
 			openLog(item) {

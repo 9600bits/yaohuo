@@ -139,6 +139,9 @@
 		isLoginRequiredHtml
 	} from '@/utils/auth.js'
 	import {
+		request
+	} from '@/utils/request.js'
+	import {
 		openInBrowser
 	} from '@/utils/browser.js'
 	import {
@@ -163,6 +166,64 @@
 	import {
 		markPostRead
 	} from '@/utils/read-state.js'
+
+	const DETAIL_CACHE_TTL = 5 * 60 * 1000
+	const DETAIL_CACHE_MAX_ITEMS = 10
+	const DETAIL_CACHE_MAX_NODES = 200000
+	const DETAIL_CACHE_PREFIX = 'yaohuo_detail_cache_'
+
+	function getDetailCacheKey(postId) {
+		return DETAIL_CACHE_PREFIX + String(postId || '')
+	}
+
+	function readDetailCache(postId) {
+		try {
+			const raw = uni.getStorageSync(getDetailCacheKey(postId))
+			if (!raw || !raw.time || !raw.nodes) {
+				return null
+			}
+			if (Date.now() - raw.time > DETAIL_CACHE_TTL) {
+				return null
+			}
+			return raw
+		} catch (e) {
+			return null
+		}
+	}
+
+	function writeDetailCache(postId, payload) {
+		try {
+			if (String(payload && payload.nodes || '').length > DETAIL_CACHE_MAX_NODES) {
+				return
+			}
+			uni.setStorageSync(getDetailCacheKey(postId), Object.assign({
+				time: Date.now()
+			}, payload || {}))
+			let keys = []
+			try {
+				keys = (uni.getStorageInfoSync().keys || []).filter(key => key.indexOf(DETAIL_CACHE_PREFIX) === 0)
+			} catch (e) {}
+			if (keys.length > DETAIL_CACHE_MAX_ITEMS) {
+				keys.sort((a, b) => {
+					const ta = (uni.getStorageSync(a) || {}).time || 0
+					const tb = (uni.getStorageSync(b) || {}).time || 0
+					return ta - tb
+				})
+				keys.slice(0, keys.length - DETAIL_CACHE_MAX_ITEMS).forEach(key => {
+					try {
+						uni.removeStorageSync(key)
+					} catch (e) {}
+				})
+			}
+		} catch (e) {}
+	}
+
+	function clearDetailCache(postId) {
+		try {
+			uni.removeStorageSync(getDetailCacheKey(postId))
+		} catch (e) {}
+	}
+
 	export default {
 		data() {
 			return {
@@ -212,7 +273,11 @@
 			this.info.classId = option.classid || option.classId || ''
 			this.codeCopyScope = `post-${option.id || Date.now()}`
 			markPostRead(option.id)
-			this.fetchDetail()
+			const cached = readDetailCache(option.id)
+			if (cached) {
+				this.applyDetailCache(cached)
+			}
+			this.fetchDetail(!!cached)
 		},
 		onUnload() {
 			this.detailPageAlive = false
@@ -239,6 +304,19 @@
 			}
 		},
 		methods: {
+			applyDetailCache(cached) {
+				if (!cached) {
+					return
+				}
+				this.nodes = cached.nodes || ''
+				this.info = Object.assign({}, cached.info || {})
+				this.postAttachments = cached.postAttachments || []
+				this.postImages = cached.postImages || []
+				this.honorArr = cached.honorArr || []
+				if (cached.totalPage) {
+					this.totalPage = cached.totalPage
+				}
+			},
 			favoritePost() {
 				if (!this.postFavoriteUrl || this.favoritingPost || this.postFavorited) {
 					return
@@ -247,25 +325,18 @@
 				uni.showLoading({
 					title: '收藏中'
 				})
-				uni.request({
+				request({
 					url: this.postFavoriteUrl,
 					method: 'GET',
-					header: getAuthHeader({
+					header: {
 						'Referer': `https://yaohuo.me/bbs-${this.info.postId}.html`
-					}),
-					success: res => {
+					},
+					failTip: '收藏失败'
+				}).then(res => {
 						this.handlePostFavoriteResponse(res)
-					},
-					fail: () => {
-						uni.showToast({
-							title: '收藏失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).catch(() => {}).then(() => {
 						this.favoritingPost = false
 						uni.hideLoading()
-					}
 				})
 			},
 			handlePostFavoriteResponse(res) {
@@ -373,22 +444,21 @@
 				uni.showLoading({
 					title: '删除中'
 				})
-				uni.request({
+				request({
 					url: this.postDeleteUrl,
 					method: 'POST',
-					header: getAuthHeader({
+					header: {
 						'Content-Type': 'application/x-www-form-urlencoded',
 						'Referer': this.postDeleteUrl
-					}),
+					},
 					data: this.formEncode({
 						needpassword: password
 					}),
-					success: res => {
+					silent: true
+				}).then(res => {
 						this.handlePostDeleteResponse(res, this.postDeleteUrl, true)
-					},
-					fail: () => {
+				}).catch(() => {
 						this.showPostDeleteFailure('删除失败')
-					}
 				})
 			},
 			requestPostDeleteConfirm(confirmRequest, refererUrl) {
@@ -397,20 +467,19 @@
 					method: 'POST',
 					data: {}
 				} : confirmRequest
-				uni.request({
+				request({
 					url: request.url,
 					method: request.method || 'POST',
-					header: getAuthHeader({
+					header: {
 						'Content-Type': 'application/x-www-form-urlencoded',
 						'Referer': refererUrl || this.postDeleteUrl
-					}),
-					data: this.formEncode(request.data || {}),
-					success: res => {
-						this.handlePostDeleteResponse(res, request.url, false)
 					},
-					fail: () => {
+					data: this.formEncode(request.data || {}),
+					silent: true
+				}).then(res => {
+						this.handlePostDeleteResponse(res, request.url, false)
+				}).catch(() => {
 						this.showPostDeleteFailure('最终删除请求失败')
-					}
 				})
 			},
 			handlePostDeleteResponse(res, requestUrl, allowConfirm) {
@@ -612,10 +681,10 @@
 				this.requestFavoriteState(postId, `https://yaohuo.me/bbs/favlist.aspx?key=${encodeURIComponent(postId)}`, true)
 			},
 			requestFavoriteState(postId, url, allowFallback) {
-				uni.request({
+				request({
 					url,
-					header: getAuthHeader(),
-					success: res => {
+					silent: true
+				}).then(res => {
 						if (!this.detailPageAlive || String(this.info.postId || '') !== postId) {
 							return
 						}
@@ -629,14 +698,12 @@
 							return
 						}
 						this.requestFavoriteState(postId, 'https://yaohuo.me/bbs/favlist.aspx', false)
-					},
-					fail: err => {
+				}).catch(err => {
 						console.log('[YAOHUO_FAVORITE_STATE_FAIL]', {
 							postId,
 							url,
 							errMsg: err && err.errMsg || String(err || '')
 						})
-					}
 				})
 			},
 			isPostInFavoriteList(html, postId) {
@@ -658,20 +725,18 @@
 					return Promise.resolve(this.currentUserId)
 				}
 				return new Promise(resolve => {
-					uni.request({
+					request({
 						url: 'https://yaohuo.me/myfile.aspx',
-						header: getAuthHeader(),
-						success: res => {
+						silent: true
+					}).then(res => {
 							const userId = this.extractCurrentUserId(res.data)
 							if (userId) {
 								this.currentUserId = userId
 								uni.setStorageSync('yaohuoUserId', userId)
 							}
 							resolve(userId)
-						},
-						fail: () => {
+					}).catch(() => {
 							resolve('')
-						}
 					})
 				})
 			},
@@ -858,15 +923,16 @@
 					action: 'gomod'
 				})
 				this.rewardLoading = true
-				uni.request({
+				request({
 					url: this.rewardConfig.url,
 					method: 'POST',
-					header: getAuthHeader({
+					header: {
 						'Content-Type': 'application/x-www-form-urlencoded',
 						'Referer': `https://yaohuo.me/bbs-${this.info.postId}.html`
-					}),
+					},
 					data: this.formEncode(payload),
-					success: res => {
+					silent: true
+				}).then(res => {
 						const html = String(res.data || '')
 						const tip = this.extractTipText(html) || this.extractRewardResultText(html)
 						if (this.isRewardSuccess(html, tip)) {
@@ -883,16 +949,13 @@
 								showCancel: false
 							})
 						}
-					},
-					fail: () => {
+				}).catch(() => {
 						uni.showToast({
 							title: '打赏失败',
 							icon: 'none'
 						})
-					},
-					complete: () => {
+				}).then(() => {
 						this.rewardLoading = false
-					}
 				})
 			},
 			extractRewardResultText(html) {
@@ -1153,6 +1216,9 @@
 				const flagData = flag && typeof flag === 'object' ? flag : {}
 				const afterReply = flagData.afterReply
 				const order = flagData.order === 'desc' || flagData.order === 'asc' ? flagData.order : ''
+				if (afterReply) {
+					clearDetailCache(requestPostId)
+				}
 				if (order) {
 					this.replyOrder = order
 				}
@@ -1175,10 +1241,10 @@
 					this.page = 1
 				}
 				const url = this.getReplyUrl()
-				uni.request({
+				request({
 					url,
-					header: getAuthHeader(),
-					success: (res) => {
+					silent: true
+				}).then((res) => {
 						if (!this.detailPageAlive || requestPostId !== this.info.postId) {
 							return
 						}
@@ -1205,18 +1271,15 @@
 						} else {
 							this.status = 'more'
 						}
-					},
-					fail: () => {
+				}).catch(() => {
 						if (this.detailPageAlive && requestPostId === this.info.postId) {
 							uni.hideLoading()
 						}
-					},
-					complete: () => {
+				}).then(() => {
 						if (!auto && this.detailPageAlive && requestPostId === this.info.postId) {
 							uni.hideLoading()
 							uni.hideNavigationBarLoading()
 						}
-					}
 				})
 			},
 			getReplyUrl() {
@@ -1340,15 +1403,18 @@
 				}
 				return ''
 			},
-			fetchDetail() {
+			fetchDetail(fromCache) {
 				const requestPostId = this.info.postId
-				uni.showLoading({
-					title: '拼命加载中'
-				})
-				uni.request({
+				if (!fromCache) {
+					uni.showLoading({
+						title: '拼命加载中'
+					})
+				}
+				request({
 					url: `https://yaohuo.me/bbs-${this.info.postId}.html`,
-					header: getAuthHeader(),
-					success: (res) => {
+					silent: !!fromCache,
+					failTip: '加载失败'
+				}).then((res) => {
 						if (!this.detailPageAlive || requestPostId !== this.info.postId) {
 							return
 						}
@@ -1416,23 +1482,25 @@
 						this.page = 1
 						this.replyPageBaseUrl = ''
 						this.replyGo = String(Date.now()).slice(-5)
+						writeDetailCache(this.info.postId, {
+							info: this.info,
+							nodes: this.nodes,
+							postAttachments: this.postAttachments,
+							postImages: this.postImages,
+							honorArr: this.honorArr,
+							replyCount: this.info.replyCount,
+							totalPage: this.totalPage
+						})
 						this.fetchReply()
-					},
-					fail: () => {
+				}).catch(() => {
 						if (!this.detailPageAlive || requestPostId !== this.info.postId) {
 							return
 						}
-						uni.showToast({
-							title: '加载失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).then(() => {
 						if (this.detailPageAlive && requestPostId === this.info.postId) {
 							uni.hideLoading()
 							uni.stopPullDownRefresh()
 						}
-					}
 				})
 			},
 			stripHtml(html) {
@@ -2266,14 +2334,10 @@
 				return links
 			},
 			fetchHtml(url) {
-				return new Promise((resolve, reject) => {
-					uni.request({
-						url,
-						header: getAuthHeader(),
-						success: res => resolve(String(res.data || '')),
-						fail: reject
-					})
-				})
+				return request({
+					url,
+					silent: true
+				}).then(res => String(res.data || ''))
 			},
 			collectAttachmentImageHtml(html, currentText) {
 				const parts = []
@@ -2445,20 +2509,19 @@
 				}
 				const url = `https://yaohuo.me/bbs/userinfo.aspx?touserid=${userId}`
 				this.avatarLoading[userId] = new Promise(resolve => {
-					uni.request({
+					request({
 						url,
-						header: getAuthHeader({
+						header: {
 							'Referer': `https://yaohuo.me/bbs-${this.info.postId}.html`
-						}),
-						success: res => {
+						},
+						silent: true
+					}).then(res => {
 							const avatar = this.extractUserAvatar(res.data)
 							if (avatar && this.detailPageAlive) {
 								this.avatarCache[userId] = avatar
 							}
 							resolve(avatar)
-						},
-						fail: () => resolve('')
-					})
+					}).catch(() => resolve(''))
 				}).then(avatar => {
 					delete this.avatarLoading[userId]
 					return avatar
@@ -3035,10 +3098,10 @@
 									}
 									if (ContentBox.name === 'a' && ContentBox.attribs.href) {
 										if (ContentBox.attribs.href.indexOf('book_re_addfileshow') > -1) {
-											uni.request({
+											request({
 												url: `https://yaohuo.me${ContentBox.attribs.href}`,
-												header: getAuthHeader(),
-												success: (res) => {
+												silent: true
+											}).then((res) => {
 													let imgUrl = res.data.match(/img src=\"(.*?)\"/)
 													if (imgUrl) {
 														replyObj.text += `<img style="max-width:80%" src="https://yaohuo.me${imgUrl[1]}">`
@@ -3050,8 +3113,7 @@
 																`<a href="https://yaohuo.me${fileUrl[1]}">点击复制附件链接</a>`
 														}
 													}
-												}
-											})
+											}).catch(() => {})
 										}
 										if (ContentBox.attribs.href.indexOf('bbs-') < 0 && ContentBox.attribs.href.indexOf('bbs/Book_re.aspx') < 0 && ContentBox.attribs.href.indexOf('bbs/Book_re_del.aspx') < 0 && ContentBox.attribs.href.indexOf('book_re_addfileshow') < 0) {
 											replyObj.text += `<a href="${ContentBox.attribs.href}">${ContentBox.children[0].data}</a>`

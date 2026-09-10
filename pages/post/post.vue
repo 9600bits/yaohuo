@@ -134,10 +134,12 @@
 <script>
 	import faces from '@/utils/faces.js'
 	import {
-		getAuthHeader,
 		getAuthSid,
 		isLoginRequiredHtml
 	} from '@/utils/auth.js'
+	import {
+		request
+	} from '@/utils/request.js'
 	import {
 		getAttr,
 		stripHtml
@@ -322,10 +324,10 @@
 				uni.showLoading({
 					title: '加载发帖'
 				})
-				uni.request({
+				request({
 					url: this.getPostUrl(),
-					header: getAuthHeader(),
-					success: res => {
+					failTip: '发帖页加载失败'
+				}).then(res => {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html)) {
 							return uni.showModal({
@@ -342,17 +344,9 @@
 						const form = this.parseForm(html)
 						this.formAction = form.action || this.getPostUrl()
 						this.hiddenFields = form.fields
-					},
-					fail: () => {
-						uni.showToast({
-							title: '发帖页加载失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).catch(() => {}).then(() => {
 						this.loadingForm = false
 						uni.hideLoading()
-					}
 				})
 			},
 			parseForm(html) {
@@ -482,14 +476,15 @@
 					return this.submitLocalPostFile()
 				}
 				this.submitting = true
-				uni.request({
+				request({
 					url: this.formAction || this.getPostUrl(),
 					method: 'POST',
-					header: getAuthHeader({
+					header: {
 						'Content-Type': 'application/x-www-form-urlencoded'
-					}),
+					},
 					data: this.buildPostData(),
-					success: res => {
+					failTip: '发帖失败'
+				}).then(res => {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html) || this.isFailureHtml(html)) {
 							return uni.showModal({
@@ -515,16 +510,8 @@
 								uni.navigateBack()
 							}, 600)
 						}
-					},
-					fail: () => {
-						uni.showToast({
-							title: '发帖失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).catch(() => {}).then(() => {
 						this.submitting = false
-					}
 				})
 			},
 			submitLocalPostFile() {

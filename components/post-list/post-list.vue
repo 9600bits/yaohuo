@@ -31,9 +31,11 @@
 
 <script>
 	import {
-		getAuthHeader,
 		isLoginRequiredHtml
 	} from '@/utils/auth.js'
+	import {
+		request
+	} from '@/utils/request.js'
 	import {
 		decodeHtml,
 		extractClassBlocks,
@@ -50,6 +52,47 @@
 	const DEFAULT_URL = 'https://yaohuo.me/bbs/book_list.aspx?gettotal=2022&action=new'
 	const YAOHUO_ORIGIN = 'https://yaohuo.me'
 	const PAGE_SIZE = 15
+	const LIST_CACHE_KEY = 'yaohuo_list_cache_v1'
+	const LIST_CACHE_TTL = 10 * 60 * 1000
+	const LIST_CACHE_MAX_URLS = 3
+	const LIST_CACHE_MAX_POSTS = 30
+
+	function hashUrl(url) {
+		let hash = 0
+		const source = String(url || '')
+		for (let i = 0; i < source.length; i++) {
+			hash = ((hash << 5) - hash + source.charCodeAt(i)) | 0
+		}
+		return 'l' + Math.abs(hash).toString(36)
+	}
+
+	function readListCache(url) {
+		try {
+			const cache = uni.getStorageSync(LIST_CACHE_KEY) || {}
+			const item = cache[hashUrl(url)]
+			if (item && item.time && Date.now() - item.time < LIST_CACHE_TTL && Array.isArray(item.posts) && item.posts.length) {
+				return item
+			}
+		} catch (e) {}
+		return null
+	}
+
+	function writeListCache(url, posts, totalPage) {
+		try {
+			const cache = uni.getStorageSync(LIST_CACHE_KEY) || {}
+			const key = hashUrl(url)
+			cache[key] = {
+				time: Date.now(),
+				posts: (posts || []).slice(0, LIST_CACHE_MAX_POSTS),
+				totalPage: Number(totalPage) || 1
+			}
+			const keys = Object.keys(cache).sort((a, b) => (cache[b].time || 0) - (cache[a].time || 0))
+			keys.slice(LIST_CACHE_MAX_URLS).forEach(k => {
+				delete cache[k]
+			})
+			uni.setStorageSync(LIST_CACHE_KEY, cache)
+		} catch (e) {}
+	}
 
 	export default {
 		props: {
@@ -170,13 +213,15 @@
 				this.status = 'loading'
 				this.fetchData()
 			},
-			refreshData() {
+			refreshData(keepPosts) {
 				this.canFresh = false
 				this.page = 1
 				this.totalPage = 1
 				this.nextPageUrl = ''
 				this.status = 'more'
-				this.posts = []
+				if (!keepPosts) {
+					this.posts = []
+				}
 				setTimeout(() => {
 					this.canFresh = true
 				}, 1000 * 20)
@@ -191,16 +236,24 @@
 				if (!requestUrl) {
 					return
 				}
+				if (requestedPage === 1 && !this.posts.length) {
+					const cached = readListCache(this.getBaseUrl())
+					if (cached && cached.posts.length) {
+						this.posts = cached.posts
+						this.totalPage = cached.totalPage || 1
+						this.status = 'more'
+					}
+				}
 				this.isLoading = true
 				if (this.canFresh && this.status !== 'loading') {
 					uni.showLoading({
 						title: '拉取数据中'
 					})
 				}
-				uni.request({
+				request({
 					url: requestUrl,
-					header: getAuthHeader(),
-					success: (res) => {
+					failTip: '列表加载失败'
+				}).then((res) => {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html)) {
 							this.$emit('login-invalid')
@@ -216,18 +269,18 @@
 							})
 						}
 						this.handleSimpleData(html, requestUrl)
-					},
-					fail: () => {
+						if (requestedPage === 1) {
+							writeListCache(this.getBaseUrl(), this.posts, this.totalPage)
+						}
+				}).catch(() => {
 						if (requestedPage > 1) {
 							this.page = requestedPage - 1
 						}
 						this.status = 'more'
-					},
-					complete: () => {
+				}).then(() => {
 						this.isLoading = false
 						uni.hideLoading()
 						uni.stopPullDownRefresh()
-					}
 				})
 			},
 			updateNavigationTitle(html) {

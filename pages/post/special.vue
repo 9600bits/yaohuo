@@ -101,9 +101,11 @@
 
 <script>
 	import {
-		getAuthHeader,
 		isLoginRequiredHtml
 	} from '@/utils/auth.js'
+	import {
+		request
+	} from '@/utils/request.js'
 	import {
 		absoluteYaohuoUrl,
 		getAttr,
@@ -232,10 +234,10 @@
 				uni.showLoading({
 					title: '加载中'
 				})
-				uni.request({
+				request({
 					url: this.getOfficialUrl(),
-					header: getAuthHeader(),
-					success: res => {
+					failTip: '加载失败'
+				}).then(res => {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html)) {
 							return this.goLogin()
@@ -248,17 +250,9 @@
 						this.action = parsed.action || this.getOfficialUrl()
 						this.hiddenFields = parsed.fields
 						this.applyParsedDefaults(parsed.fields)
-					},
-					fail: () => {
-						uni.showToast({
-							title: '加载失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).catch(() => {}).then(() => {
 						this.loading = false
 						uni.hideLoading()
-					}
 				})
 			},
 			parseForm(html) {
@@ -408,15 +402,16 @@
 					})
 				}
 				this.submitting = true
-				uni.request({
+				request({
 					url: this.action || this.getOfficialUrl(),
 					method: 'POST',
-					header: getAuthHeader({
+					header: {
 						'Content-Type': 'application/x-www-form-urlencoded',
 						Referer: this.getOfficialUrl()
-					}),
+					},
 					data: this.encodePairs(this.buildSubmitPairs()),
-					success: res => {
+					failTip: '发表失败'
+				}).then(res => {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html) || this.isFailureHtml(html)) {
 							return uni.showModal({
@@ -439,16 +434,8 @@
 							}
 							uni.navigateBack()
 						}, 600)
-					},
-					fail: () => {
-						uni.showToast({
-							title: '发表失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).catch(() => {}).then(() => {
 						this.submitting = false
-					}
 				})
 			},
 			encodePairs(pairs) {

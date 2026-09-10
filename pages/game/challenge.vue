@@ -86,9 +86,11 @@
 <script>
 	import {
 		clearAuthCookie,
-		getAuthHeader,
 		isLoginRequiredHtml
 	} from '@/utils/auth.js'
+	import {
+		request
+	} from '@/utils/request.js'
 	import {
 		absoluteYaohuoUrl
 	} from '@/utils/html.js'
@@ -164,28 +166,20 @@
 				uni.showLoading({
 					title: '加载中'
 				})
-				uni.request({
+				request({
 					url,
-					header: getAuthHeader(),
-					success: res => {
+					failTip: '加载失败'
+				}).then(res => {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html)) {
 							return this.goLogin()
 						}
 						this.url = url
 						this.applyHtml(html, url)
-					},
-					fail: () => {
-						uni.showToast({
-							title: '加载失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).catch(() => {}).then(() => {
 						this.loaded = true
 						this.loading = false
 						uni.hideLoading()
-					}
 				})
 			},
 			applyHtml(html, url) {
@@ -236,15 +230,16 @@
 					return
 				}
 				this.submitting = true
-				uni.request({
+				request({
 					url,
 					method: 'POST',
-					header: getAuthHeader({
+					header: {
 						'Content-Type': 'application/x-www-form-urlencoded',
 						'Referer': this.url
-					}),
+					},
 					data: this.formEncode(payload),
-					success: res => {
+					failTip: '提交失败'
+				}).then(res => {
 						const html = String(res.data || '')
 						const statusCode = Number(res.statusCode || 0)
 						console.log('[YAOHUO_GAME_CHALLENGE_SUBMIT]', {
@@ -267,16 +262,8 @@
 							return
 						}
 						this.applyHtml(html, url)
-					},
-					fail: () => {
-						uni.showToast({
-							title: '提交失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).catch(() => {}).then(() => {
 						this.submitting = false
-					}
 				})
 			},
 			followRedirect(res, fallbackUrl, isPassword) {

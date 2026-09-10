@@ -1,8 +1,41 @@
 <script>
+	import {
+		startReplyPolling,
+		stopReplyPolling,
+		onReplyNotificationClick
+	} from '@/utils/notify.js'
+
 	export default {
-		onLaunch: function() {},
-		onShow: function() {},
-		onHide: function() {}
+		onLaunch: function() {
+			this.registerReplyNotificationClick()
+		},
+		onShow: function() {
+			startReplyPolling()
+		},
+		onHide: function() {
+			stopReplyPolling()
+		},
+		methods: {
+			registerReplyNotificationClick() {
+				onReplyNotificationClick(payload => {
+					const postId = String(payload || '').split(':').pop()
+					if (postId) {
+						uni.navigateTo({
+							url: `/pages/detail/detail?id=${postId}`,
+							fail: () => {
+								uni.navigateTo({
+									url: '/pages/replies/replies'
+								})
+							}
+						})
+						return
+					}
+					uni.navigateTo({
+						url: '/pages/replies/replies'
+					})
+				})
+			}
+		}
 	}
 </script>
 

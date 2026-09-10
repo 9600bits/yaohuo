@@ -56,9 +56,11 @@
 <script>
 	import {
 		clearAuthCookie,
-		getAuthHeader,
 		isLoginRequiredHtml
 	} from '@/utils/auth.js'
+	import {
+		request
+	} from '@/utils/request.js'
 	import {
 		absoluteYaohuoUrl,
 		decodeHtml,
@@ -105,10 +107,10 @@
 					return
 				}
 				this.loading = true
-				uni.request({
+				request({
 					url: absoluteYaohuoUrl(this.url),
-					header: getAuthHeader(),
-					success: res => {
+					failTip: '加载失败'
+				}).then(res => {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html)) {
 							return this.goLogin()
@@ -127,17 +129,9 @@
 								title: parsed.title
 							})
 						}
-					},
-					fail: () => {
-						uni.showToast({
-							title: '加载失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).catch(() => {}).then(() => {
 						this.loading = false
 						uni.stopPullDownRefresh()
-					}
 				})
 			},
 			parsePage(html) {
@@ -605,13 +599,14 @@
 			},
 			requestDeleteFavorite(item, index) {
 				this.deletingFavoriteId = item.favoriteId
-				uni.request({
+				request({
 					url: item.deleteUrl || `https://yaohuo.me/bbs/favlist.aspx?action=delete&siteid=1000&favtypeid=0&id=${item.favoriteId}`,
 					method: 'POST',
-					header: getAuthHeader({
+					header: {
 						'Referer': absoluteYaohuoUrl(this.url)
-					}),
-					success: res => {
+					},
+					failTip: '删除失败'
+				}).then(res => {
 						const result = this.parseFavoriteDeleteResult(res.data)
 						if (Number(res.statusCode || 0) >= 400 || !result.success) {
 							return uni.showModal({
@@ -628,16 +623,8 @@
 							title: result.message || '删除成功',
 							icon: 'success'
 						})
-					},
-					fail: () => {
-						uni.showToast({
-							title: '删除失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).catch(() => {}).then(() => {
 						this.deletingFavoriteId = ''
-					}
 				})
 			},
 			parseFavoriteDeleteResult(data) {

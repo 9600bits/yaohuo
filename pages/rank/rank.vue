@@ -35,9 +35,11 @@
 <script>
 	import {
 		clearAuthCookie,
-		getAuthHeader,
 		isLoginRequiredHtml
 	} from '@/utils/auth.js'
+	import {
+		request
+	} from '@/utils/request.js'
 	import {
 		absoluteYaohuoUrl,
 		decodeHtml,
@@ -245,30 +247,28 @@
 				if (requestedPage === 1) {
 					this.status = 'loading'
 				}
-				uni.request({
+				request({
 					url: requestUrl,
-					header: getAuthHeader({
+					header: {
 						Referer: 'https://yaohuo.me/'
-					}),
-					success: res => {
+					},
+					silent: true
+				}).then(res => {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html)) {
 							this.goLogin()
 							return
 						}
 						this.handleRankData(html, requestUrl, reset)
-					},
-					fail: err => {
+				}).catch(err => {
 						if (requestedPage > 1) {
 							this.page = requestedPage - 1
 						}
 						this.status = this.items.length ? 'more' : 'noMore'
 						console.log('[YAOHUO_RANK_REQUEST_FAIL]', err)
-					},
-					complete: () => {
+				}).then(() => {
 						this.loading = false
 						uni.stopPullDownRefresh()
-					}
 				})
 			},
 			handleRankData(html, requestUrl, reset) {

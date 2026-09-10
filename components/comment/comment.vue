@@ -115,7 +115,7 @@
 			</view>
 			<view style="background-color: #fff;padding: 20rpx;margin: 0 20rpx 20rpx;">
 				<textarea :maxlength="-1" :fixed="true" style="width: 100%;" :cursor-spacing="20"
-					:adjust-position='true' type="text" :focus="isReplyFloor" @blur="isReplyFloor=false"
+					:adjust-position="false" type="text" :focus="isReplyFloor" @blur="isReplyFloor=false"
 					v-model="replyData.content" :placeholder="replyTips" :auto-height="true"
 					:show-confirm-bar="false"></textarea>
 			</view>
@@ -126,8 +126,12 @@
 <script>
 	import faces from '@/utils/faces.js'
 	import {
-		getAuthHeader
+		getAuthHeader,
+		isLoginRequiredHtml
 	} from '@/utils/auth.js'
+	import {
+		request
+	} from '@/utils/request.js'
 	import {
 		navigateToNativePost,
 		navigateToNativeRoute
@@ -1316,25 +1320,22 @@
 			},
 			requestDeleteUrl(url, options) {
 				options = options || {}
-				return new Promise((resolve, reject) => {
-					uni.request({
-						url,
-						method: options.method || 'GET',
-						header: getAuthHeader({
-							'Content-Type': 'application/x-www-form-urlencoded',
-							'Referer': `https://yaohuo.me/bbs-${this.postInfo.postId}.html`
-						}),
-						data: options.data ? this.formEncode(options.data) : undefined,
-						success: res => {
-							const html = String(res.data || '')
-							resolve({
-								statusCode: res.statusCode || 0,
-								html,
-								tipText: this.extractTipText(html) || this.stripHtml(html).slice(0, 160)
-							})
-						},
-						fail: reject
-					})
+				return request({
+					url,
+					method: options.method || 'GET',
+					header: {
+						'Content-Type': 'application/x-www-form-urlencoded',
+						'Referer': `https://yaohuo.me/bbs-${this.postInfo.postId}.html`
+					},
+					data: options.data ? this.formEncode(options.data) : undefined,
+					silent: true
+				}).then(res => {
+					const html = String(res.data || '')
+					return {
+						statusCode: res.statusCode || 0,
+						html,
+						tipText: this.extractTipText(html) || this.stripHtml(html).slice(0, 160)
+					}
 				})
 			},
 			extractDeleteConfirmRequest(html) {
@@ -1450,22 +1451,41 @@
 					}),
 					data: this.formEncode(payload),
 					success: (res) => {
-						const html = String(res.data || '')
-						const tipText = this.extractTipText(html)
-						const feedback = this.extractReplyFeedback(tipText, html)
-						const isSuccess = this.isReplySuccess(tipText, html, feedback)
+						const json = this.parseReplyJsonResponse(res)
+						const html = json ? '' : String(res.data || '')
+						const tipText = json ? this.buildReplyJsonFeedback(json) : this.extractTipText(html)
+						const feedback = json ? tipText : this.extractReplyFeedback(tipText, html)
+						const isSuccess = json ? !!json.ok : this.isReplySuccess(tipText, html, feedback)
+						const logHtml = json ? JSON.stringify(json) : html
+						if (json && !json.ok && json.status === 'CSRFERR' && !request.csrfRetry &&
+							json.retryable && json.csrfToken) {
+							return this.retrySubmitReply(request, json.csrfToken)
+						}
+						if (json && !json.ok && json.status === 'NEED_LOGIN') {
+							return this.showReplyLoginRequired(json.message)
+						}
+						if (!json && isLoginRequiredHtml(html)) {
+							return this.showReplyLoginRequired('')
+						}
+						if (json && !json.ok) {
+							return uni.showModal({
+								title: '评论失败',
+								content: json.message || '服务器返回失败',
+								showCancel: false
+							})
+						}
 						this.logReplyResponse({
 							statusCode: res.statusCode,
 							url,
 							meta: request.meta || {},
 							payload: this.getReplyPayloadForLog(payload),
 							encodedPayload: this.formEncode(this.getReplyPayloadForLog(payload)),
-							tip: tipText,
+							tip: json ? (json.message || '') : tipText,
 							feedback,
 							success: isSuccess,
 							resourceRewardPatch: this.shouldPatchResourceReward(feedback, payload),
-							text: this.stripHtml(html).slice(0, 1200),
-							html: html.slice(0, 800)
+							text: json ? (json.message || '') : this.stripHtml(html).slice(0, 1200),
+							html: logHtml.slice(0, 800)
 						})
 						if (Number(res.statusCode || 0) >= 400 || this.isFailureTip(tipText)) {
 							return uni.showModal({
@@ -1514,37 +1534,91 @@
 			},
 			prepareReplyRequest(payload) {
 				const detailUrl = `https://yaohuo.me/bbs-${this.postInfo.postId}.html`
-				return new Promise(resolve => {
-					uni.request({
-						url: detailUrl,
-						header: this.getReplyRequestHeader({
-							'Referer': detailUrl
-						}),
-						success: res => {
-							const html = String(res.data || '')
-							const form = this.extractReplyForm(html)
-							const formPayload = form.html ? this.extractFormFields(form.html) : {}
-							const mergedPayload = this.mergeReplyPayload(formPayload, payload)
-							resolve({
-								url: this.getReplySubmitUrl(form.action, mergedPayload),
-								payload: mergedPayload,
-								meta: {
-									formFound: !!form.html,
-									formAction: form.action || '',
-									formFields: Object.keys(formPayload)
-								}
-							})
-						},
-						fail: err => {
-							resolve({
-								url: this.getReplySubmitUrl('', payload),
-								payload,
-								meta: {
-									formFetchFailed: (err && (err.errMsg || err.message)) || 'request fail'
-								}
+				return request({
+					url: detailUrl,
+					header: this.getReplyRequestHeader({
+						'Referer': detailUrl
+					}),
+					silent: true
+				}).then(res => {
+					const html = String(res.data || '')
+					const form = this.extractReplyForm(html)
+					const formPayload = form.html ? this.extractFormFields(form.html) : {}
+					const mergedPayload = this.mergeReplyPayload(formPayload, payload)
+					return {
+						url: this.getReplySubmitUrl(form.action, mergedPayload),
+						payload: mergedPayload,
+						meta: {
+							formFound: !!form.html,
+							formAction: form.action || '',
+							formFields: Object.keys(formPayload)
+						}
+					}
+				}).catch(err => {
+					return {
+						url: this.getReplySubmitUrl('', payload),
+						payload,
+						meta: {
+							formFetchFailed: (err && (err.errMsg || err.message)) || 'request fail'
+						}
+					}
+				})
+			},
+			parseReplyJsonResponse(res) {
+				const data = res && res.data
+				if (data && typeof data === 'object' && typeof data.ok === 'boolean') {
+					return data
+				}
+				const text = String(data || '').trim()
+				if (!text || (text.charAt(0) !== '{' && text.charAt(0) !== '[')) {
+					return null
+				}
+				try {
+					const parsed = JSON.parse(text)
+					if (parsed && typeof parsed.ok === 'boolean') {
+						return parsed
+					}
+				} catch (e) {}
+				return null
+			},
+			buildReplyJsonFeedback(json) {
+				const parts = []
+				if (json.message) {
+					parts.push(json.message)
+				}
+				if (json.earnedMoney !== undefined && json.earnedMoney !== null && Number(json.earnedMoney) !== 0) {
+					parts.push(`获得妖晶:${json.earnedMoney}`)
+				}
+				if (json.earnedExperience !== undefined && json.earnedExperience !== null && Number(json.earnedExperience) !== 0) {
+					parts.push(`获得经验:${json.earnedExperience}`)
+				}
+				return parts.join('\n')
+			},
+			retrySubmitReply(request, csrfToken) {
+				const payload = Object.assign({}, request.payload || {}, {
+					__CSRFToken: csrfToken
+				})
+				uni.showToast({
+					title: '校验已刷新，重新提交中',
+					icon: 'none'
+				})
+				return this.submitReply(Object.assign({}, request, {
+					payload,
+					csrfRetry: true
+				}))
+			},
+			showReplyLoginRequired(message) {
+				return uni.showModal({
+					title: '登录已失效',
+					content: message || '登录已失效，请重新登录后再回复',
+					confirmText: '去登录',
+					success: res => {
+						if (res.confirm) {
+							uni.navigateTo({
+								url: '/pages/login/login?clear=1'
 							})
 						}
-					})
+					}
 				})
 			},
 			extractReplyForm(html) {
@@ -1634,15 +1708,14 @@
 			},
 			mergeReplyPayload(formPayload, payload) {
 				const form = formPayload || {}
-				const data = {
-					content: payload.content || '',
-					action: payload.action || form.action || 'add',
-					id: payload.id || form.id || this.postInfo.postId,
-					siteid: payload.siteid || form.siteid || 1000,
-					lpage: payload.lpage || form.lpage || 1,
-					classid: payload.classid || form.classid || this.getPostClassId(),
-					g: payload.g || form.g || '快速回复'
-				}
+				const data = Object.assign({}, form)
+				data.content = payload.content || form.content || ''
+				data.action = payload.action || form.action || 'add'
+				data.id = payload.id || form.id || this.postInfo.postId
+				data.siteid = payload.siteid || form.siteid || 1000
+				data.lpage = payload.lpage || form.lpage || 1
+				data.classid = payload.classid || form.classid || this.getPostClassId()
+				data.g = payload.g || form.g || '快速回复'
 				;['face', 'reply', 'touserid', 'sendmsg'].forEach(key => {
 					const value = payload[key] || form[key]
 					if (value !== undefined && value !== null && String(value) !== '') {
@@ -1654,7 +1727,7 @@
 			getReplySubmitUrl(action, payload) {
 				let url = this.normalizeReplyAction(action) || 'https://yaohuo.me/bbs/book_re.aspx'
 				const data = payload || {}
-				url = this.setUrlQueryParam(url, 'ajax', 1)
+				url = this.setUrlQueryParam(url, 'format', 'json')
 				url = this.setUrlQueryParam(url, 'siteid', data.siteid || 1000)
 				url = this.setUrlQueryParam(url, 'classid', data.classid || this.getPostClassId())
 				url = this.setUrlQueryParam(url, 'id', data.id || this.postInfo.postId)

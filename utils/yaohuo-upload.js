@@ -23,6 +23,13 @@ export const YH_LOCAL_FILE_EXTENSIONS = [
 	'docx'
 ]
 
+export const YH_ALBUM_IMAGE_EXTENSIONS = [
+	'jpg',
+	'jpeg',
+	'png',
+	'gif'
+]
+
 let androidFileRequestSeed = 45200
 
 export function getYaohuoReplyFileUrl(postInfo, fallbackClassId) {
@@ -48,6 +55,10 @@ export function getYaohuoPostFileUrl(classId, page) {
 		'page=' + encodeURIComponent(page || '')
 	]
 	return 'https://yaohuo.me/bbs/Book_View_addfile.aspx?' + params.join('&')
+}
+
+export function getYaohuoAlbumUploadUrl() {
+	return 'https://yaohuo.me/album/admin_WAPadd.aspx'
 }
 
 export function chooseYaohuoLocalFile(count) {
@@ -440,6 +451,109 @@ export function uploadYaohuoReplyFile(options) {
 	})
 }
 
+export function uploadYaohuoAlbumImage(options) {
+	options = options || {}
+	const file = options.file || {}
+	const filePath = file.path || file.tempFilePath || options.filePath || ''
+	const sourceUrl = options.url || getYaohuoAlbumUploadUrl()
+	if (!filePath) {
+		return Promise.reject(new Error('未选择图片'))
+	}
+	if (!isAllowedAlbumImage(filePath || file.name)) {
+		return Promise.reject(new Error('头像相册只支持 jpg、png、gif 图片'))
+	}
+	const formData = {
+		book_title: options.title || '自定义头像',
+		action: 'gomod',
+		classid: 0,
+		siteid: 1000,
+		num: 1,
+		smalltypeid: 0,
+		toclassid: 0,
+		ishidden: 1
+	}
+	return new Promise((resolve, reject) => {
+		uni.uploadFile({
+			url: getYaohuoAlbumUploadUrl(),
+			filePath,
+			name: 'book_file',
+			header: getAuthHeader({
+				Referer: sourceUrl
+			}),
+			formData,
+			success: res => {
+				const html = String(res.data || '')
+				resolve({
+					statusCode: res.statusCode,
+					data: html,
+					url: sourceUrl,
+					imageUrl: extractYaohuoAlbumImageUrl(html),
+					tip: extractYaohuoAlbumUploadTip(html),
+					formData: Object.assign({}, formData),
+					fileName: file.name || getFileName(filePath),
+					fileSize: file.size || 0
+				})
+			},
+			fail: err => {
+				reject(new Error((err && (err.errMsg || err.message)) || '妖火相册上传失败'))
+			}
+		})
+	})
+}
+
+export function isYaohuoAlbumUploadSuccess(html, imageUrl) {
+	const text = stripHtml(html)
+	if (imageUrl || /\/album\/upload\/[^"'<>]+\.(?:jpe?g|png|gif|webp)/i.test(String(html || ''))) {
+		return true
+	}
+	if (/(上传|相片|图片).*成功|成功.*(上传|相片|图片)/.test(text)) {
+		return true
+	}
+	if (/(失败|错误|验证码|登录|为空|限制|不能|请先|安全验证|格式)/.test(text)) {
+		return false
+	}
+	return false
+}
+
+export function extractYaohuoAlbumImageUrl(html) {
+	const source = String(html || '')
+	const urls = []
+	const seen = {}
+	const regs = [
+		/["']([^"']*\/album\/upload\/[^"']+\.(?:jpe?g|png|gif|webp)(?:\?[^"']*)?)["']/ig,
+		/\b(?:src|href|data-full-src)\s*=\s*(["'])([^"']*\/album\/upload\/[^"']+\.(?:jpe?g|png|gif|webp)(?:\?[^"']*)?)\1/ig
+	]
+	regs.forEach(reg => {
+		let match
+		while ((match = reg.exec(source))) {
+			const raw = match[2] || match[1] || ''
+			const url = normalizeYaohuoUploadUrl(raw)
+			if (url && !seen[url]) {
+				seen[url] = true
+				urls.push(url)
+			}
+		}
+	})
+	return urls[0] || ''
+}
+
+export function extractYaohuoAlbumUploadTip(html) {
+	const tip = String(html || '').match(/<div\b[^>]*class\s*=\s*(["'])[^"']*\b(?:tip|message|modern-alert)\b[^"']*\1[^>]*>([\s\S]*?)<\/div>/i)
+	if (tip) {
+		const text = stripHtml(tip[2]).replace(/\s+/g, ' ').trim()
+		if (text) {
+			return text
+		}
+	}
+	const text = stripHtml(html).replace(/\s+/g, ' ').trim()
+	const match = text.match(/((?:上传|相片|图片)[^返回首页]{0,80}(?:成功|失败|错误)[^返回首页]{0,80})/)
+	if (match) {
+		return match[1].trim()
+	}
+	const lines = text.split(/\s*(?:返回上级|返回首页|我的相册)\s*/).filter(Boolean)
+	return (lines[0] || text).slice(0, 180)
+}
+
 export function isYaohuoUploadSuccess(html) {
 	const text = stripHtml(html)
 	if (/(发表文件帖|文件回复|附件回帖|回复).*成功|成功.*(发表文件帖|文件回复|附件回帖|回复)|获得\s*(妖晶|经验|金币|币)/.test(text)) {
@@ -514,6 +628,28 @@ function getFirstNumber(text) {
 function getFileName(path) {
 	path = String(path || '')
 	return path.split(/[\\/]/).pop() || 'file'
+}
+
+function isAllowedAlbumImage(name) {
+	const ext = String(name || '').split('?')[0].split('.').pop().toLowerCase()
+	return YH_ALBUM_IMAGE_EXTENSIONS.indexOf(ext) > -1
+}
+
+function normalizeYaohuoUploadUrl(url) {
+	url = String(url || '').replace(/&amp;/g, '&').trim()
+	if (!url) {
+		return ''
+	}
+	if (/^https?:\/\//i.test(url)) {
+		return url
+	}
+	if (url.indexOf('//') === 0) {
+		return 'https:' + url
+	}
+	if (url[0] === '/') {
+		return 'https://yaohuo.me' + url
+	}
+	return 'https://yaohuo.me/' + url.replace(/^\.?\//, '')
 }
 
 function maskUploadFormData(data) {

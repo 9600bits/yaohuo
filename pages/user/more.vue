@@ -16,9 +16,11 @@
 <script>
 	import {
 		clearAuthCookie,
-		getAuthHeader,
 		isLoginRequiredHtml
 	} from '@/utils/auth.js'
+	import {
+		request
+	} from '@/utils/request.js'
 	import {
 		parseUserMore
 	} from '@/utils/list-pages.js'
@@ -47,10 +49,10 @@
 				uni.showLoading({
 					title: '加载资料'
 				})
-				uni.request({
+				request({
 					url: this.url,
-					header: getAuthHeader(),
-					success: res => {
+					failTip: '资料加载失败'
+				}).then(res => {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html)) {
 							return this.goLogin()
@@ -60,12 +62,10 @@
 						uni.setNavigationBarTitle({
 							title: data.title || '个人资料'
 						})
-					},
-					complete: () => {
+				}).catch(() => {}).then(() => {
 						this.loading = false
 						uni.hideLoading()
 						uni.stopPullDownRefresh()
-					}
 				})
 			},
 			goLogin() {

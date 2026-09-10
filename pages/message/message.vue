@@ -24,9 +24,11 @@
 <script>
 	import {
 		clearAuthCookie,
-		getAuthHeader,
 		isLoginRequiredHtml
 	} from '@/utils/auth.js'
+	import {
+		request
+	} from '@/utils/request.js'
 	import {
 		absoluteYaohuoUrl,
 		decodeHtml,
@@ -88,17 +90,16 @@
 					content: '删除后无法恢复，确认删除吗？',
 					success: (res) => {
 						if (res.confirm) {
-							uni.request({
+							request({
 								url: deleteUrl,
-								header: getAuthHeader(),
-								success: () => {
+								failTip: '删除失败'
+							}).then(() => {
 									this.messages.splice(index, 1)
 									uni.showToast({
 										title: '删除成功',
 										icon: 'success'
 									})
-								}
-							})
+							}).catch(() => {})
 						}
 					}
 				})
@@ -273,10 +274,10 @@
 				uni.showLoading({
 					title: '加载中'
 				})
-				uni.request({
+				request({
 					url: `https://yaohuo.me/bbs/messagelist.aspx?page=${this.page}`,
-					header: getAuthHeader(),
-					success: (res) => {
+					failTip: '消息加载失败'
+				}).then((res) => {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html)) {
 							return this.goLogin()
@@ -291,18 +292,10 @@
 						if (!messageArr.length && this.page === 1) {
 							console.log('[YAOHUO_MESSAGE_EMPTY]', html.slice(0, 500))
 						}
-					},
-					fail: () => {
-						uni.showToast({
-							title: '消息加载失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).catch(() => {}).then(() => {
 						this.loading = false
 						uni.hideLoading()
 						uni.stopPullDownRefresh()
-					}
 				})
 			}
 		}

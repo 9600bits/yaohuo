@@ -27,9 +27,11 @@
 <script>
 	import {
 		clearAuthCookie,
-		getAuthHeader,
 		isLoginRequiredHtml
 	} from '@/utils/auth.js'
+	import {
+		request
+	} from '@/utils/request.js'
 	import {
 		buildPageUrl,
 		extractNextPageUrl,
@@ -114,10 +116,10 @@
 				uni.showLoading({
 					title: '加载中'
 				})
-				uni.request({
+				request({
 					url: requestUrl,
-					header: getAuthHeader(),
-					success: res => {
+					failTip: '加载失败'
+				}).then(res => {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html)) {
 							return this.goLogin()
@@ -141,22 +143,15 @@
 						this.nextPageUrl = extractNextPageUrl(html, requestUrl, this.page, /\/bbs\/FriendList\.aspx/i)
 						this.totalPage = parseTotalPage(html, 15) || (this.nextPageUrl ? this.page + 1 : this.page)
 						this.status = this.page < this.totalPage ? 'more' : 'noMore'
-					},
-					fail: () => {
+				}).catch(() => {
 						if (this.page > 1) {
 							this.page--
 						}
 						this.status = 'more'
-						uni.showToast({
-							title: '加载失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).then(() => {
 						this.loading = false
 						uni.hideLoading()
 						uni.stopPullDownRefresh()
-					}
 				})
 			},
 			openUser(item) {

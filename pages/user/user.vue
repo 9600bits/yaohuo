@@ -103,9 +103,11 @@
 <script>
 	import {
 		clearAuthCookie,
-		getAuthHeader,
 		isLoginRequiredHtml
 	} from '@/utils/auth.js'
+	import {
+		request
+	} from '@/utils/request.js'
 	import {
 		absoluteYaohuoUrl,
 		stripHtml
@@ -163,10 +165,10 @@
 					title: '加载资料'
 				})
 				const url = this.getUserUrl()
-				uni.request({
+				request({
 					url,
-					header: getAuthHeader(),
-					success: res => {
+					failTip: '资料加载失败'
+				}).then(res => {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html)) {
 							return this.goLogin()
@@ -177,18 +179,10 @@
 						uni.setNavigationBarTitle({
 							title: this.profile.title || `${this.profile.name || '用户'}的空间`
 						})
-					},
-					fail: () => {
-						uni.showToast({
-							title: '资料加载失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).catch(() => {}).then(() => {
 						this.loading = false
 						uni.hideLoading()
 						uni.stopPullDownRefresh()
-					}
 				})
 			},
 			extractGuestForm(html, url) {
@@ -276,27 +270,20 @@
 			},
 			submitRelation(type, url) {
 				this.actionLoading = type
-				uni.request({
+				request({
 					url,
-					header: getAuthHeader({
+					header: {
 						Referer: this.getUserUrl()
-					}),
-					success: res => {
+					},
+					failTip: '操作失败'
+				}).then(res => {
 						const text = stripHtml(String(res.data || ''))
 						uni.showToast({
 							title: /失败|错误|不能|限制/.test(text) ? '操作可能失败' : '操作成功',
 							icon: /失败|错误|不能|限制/.test(text) ? 'none' : 'success'
 						})
-					},
-					fail: () => {
-						uni.showToast({
-							title: '操作失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).catch(() => {}).then(() => {
 						this.actionLoading = ''
-					}
 				})
 			},
 			submitGuestbook() {
@@ -312,15 +299,16 @@
 					classid: this.guestForm.classid || 0
 				})
 				this.guestLoading = true
-				uni.request({
+				request({
 					url: this.guestAction,
 					method: 'POST',
-					header: getAuthHeader({
+					header: {
 						Referer: this.getUserUrl(),
 						'Content-Type': 'application/x-www-form-urlencoded'
-					}),
+					},
 					data,
-					success: res => {
+					failTip: '留言失败'
+				}).then(res => {
 						const text = stripHtml(String(res.data || ''))
 						if (/留言成功|成功/.test(text)) {
 							this.guestContent = ''
@@ -336,16 +324,8 @@
 							content: text.slice(0, 120) || '服务器未返回明确结果',
 							showCancel: false
 						})
-					},
-					fail: () => {
-						uni.showToast({
-							title: '留言失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).catch(() => {}).then(() => {
 						this.guestLoading = false
-					}
 				})
 			},
 			openWeb(url) {

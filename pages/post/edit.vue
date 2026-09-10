@@ -59,9 +59,11 @@
 
 <script>
 	import {
-		getAuthHeader,
 		isLoginRequiredHtml
 	} from '@/utils/auth.js'
+	import {
+		request
+	} from '@/utils/request.js'
 	import {
 		absoluteYaohuoUrl,
 		decodeHtml,
@@ -153,10 +155,10 @@
 				uni.showLoading({
 					title: '加载修改页'
 				})
-				uni.request({
+				request({
 					url: this.url,
-					header: getAuthHeader(),
-					success: res => {
+					failTip: '修改页加载失败'
+				}).then(res => {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html)) {
 							return uni.showModal({
@@ -180,17 +182,9 @@
 						this.form.additionalReward = form.fields.additionalReward || ''
 						this.postId = form.fields.id || this.postId
 						this.classId = form.fields.classid || this.classId
-					},
-					fail: () => {
-						uni.showToast({
-							title: '修改页加载失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).catch(() => {}).then(() => {
 						this.loading = false
 						uni.hideLoading()
-					}
 				})
 			},
 			parseEditForm(html) {
@@ -259,26 +253,19 @@
 					})
 				}
 				this.submitting = true
-				uni.request({
+				request({
 					url: this.formAction || this.url,
 					method: 'POST',
-					header: getAuthHeader({
+					header: {
 						'Content-Type': 'application/x-www-form-urlencoded',
 						'Referer': this.url
-					}),
+					},
 					data: this.formEncode(this.buildEditData()),
-					success: res => {
+					failTip: '修改失败'
+				}).then(res => {
 						this.handleEditResponse(res)
-					},
-					fail: () => {
-						uni.showToast({
-							title: '修改失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).catch(() => {}).then(() => {
 						this.submitting = false
-					}
 				})
 			},
 			handleEditResponse(res) {

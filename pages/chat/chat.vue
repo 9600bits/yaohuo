@@ -32,10 +32,12 @@
 <script>
 	import {
 		clearAuthCookie,
-		getAuthHeader,
 		getAuthSid,
 		isLoginRequiredHtml
 	} from '@/utils/auth.js'
+	import {
+		request
+	} from '@/utils/request.js'
 	import {
 		absoluteYaohuoUrl,
 		decodeHtml,
@@ -152,14 +154,10 @@
 				}
 			},
 			fetchHtml(url) {
-				return new Promise((resolve, reject) => {
-					uni.request({
-						url,
-						header: getAuthHeader(),
-						success: (res) => resolve(String(res.data || '')),
-						fail: reject
-					})
-				})
+				return request({
+					url,
+					silent: true
+				}).then(res => String(res.data || ''))
 			},
 			getReplyFloorFromUrl(url) {
 				const hashMatch = String(url || '').match(/#floor-(\d+)/i)
@@ -318,10 +316,10 @@
 			fetchChat(option) {
 				this.ajax.loading = true
 				this.ajax.loadText = '正在获取消息'
-				uni.request({
+				request({
 					url: `https://yaohuo.me/bbs/messagelist_view.aspx?id=${option.id}`,
-					header: getAuthHeader(),
-					success: (res) => {
+					failTip: '消息获取失败'
+				}).then((res) => {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html)) {
 							return this.goLogin()
@@ -344,14 +342,8 @@
 								this.setPageScrollTo('#bottom')
 							})
 						}, 500)
-					},
-					fail: () => {
+				}).catch(() => {
 						this.ajax.loading = false
-						uni.showToast({
-							title: '消息获取失败',
-							icon: 'none'
-						})
-					}
 				})
 			},
 			setPageScrollTo(selector) {
@@ -384,14 +376,15 @@
 				uni.showLoading({
 					title: '正在发送'
 				})
-				uni.request({
+				request({
 					method: 'POST',
 					url: 'https://yaohuo.me/bbs/messagelist_add.aspx',
-					header: getAuthHeader({
+					header: {
 						'Content-Type': 'application/x-www-form-urlencoded'
-					}),
+					},
 					data: this.replyData,
-					success: (res) => {
+					failTip: '发送失败'
+				}).then((res) => {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html)) {
 							uni.hideLoading()
@@ -419,14 +412,8 @@
 								duration: 300
 							})
 						})
-					},
-					fail: () => {
+				}).catch(() => {
 						uni.hideLoading()
-						uni.showToast({
-							title: '发送失败',
-							icon: 'none'
-						})
-					}
 				})
 			}
 		}

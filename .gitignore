@@ -26,3 +26,5 @@ local-android-build/app/build/
 local-android-build/app/libs-full-backup/
 local-android-build/local.properties
 local-android-build/app/src/main/assets/apps/*/www/
+local-android-build/app/src/main/assets/
+uniappx-experiment/

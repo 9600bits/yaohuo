@@ -4,7 +4,7 @@
 			<view class="home-fixed-header">
 				<view class="home-topbar" @click="handleTopbarTap">
 					<view class="logo">
-						<image src="https://yaohuo.me/tupian/yaohuo.png"></image>
+						<image src="/static/yaohuo-logo.png"></image>
 					</view>
 					<view class="top-actions">
 						<view class="top-action" @click.stop="openMine">
@@ -110,6 +110,9 @@
 		verifyAuthCookie
 	} from '@/utils/auth.js'
 	import {
+		request
+	} from '@/utils/request.js'
+	import {
 		navigateToNativePost
 	} from '@/utils/route.js'
 	export default {
@@ -155,7 +158,8 @@
 				checkingAuth: false,
 				redirectingLogin: false,
 				hasFetchedHome: false,
-				lastTopbarTapAt: 0
+				lastTopbarTapAt: 0,
+				lastBadgeRefreshAt: 0
 			}
 		},
 		onReachBottom() {
@@ -166,7 +170,7 @@
 		onPullDownRefresh() {
 			this.fetchData()
 			if (this.$refs.postList) {
-				this.$refs.postList.refreshData()
+				this.$refs.postList.refreshData(true)
 			}
 		},
 		onLoad() {
@@ -398,62 +402,59 @@
 				if (this.redirectingLogin) {
 					return
 				}
-				uni.request({
+				const now = Date.now()
+				if (now - this.lastBadgeRefreshAt < 30 * 1000) {
+					return
+				}
+				this.lastBadgeRefreshAt = now
+				request({
 					url: 'https://yaohuo.me/',
-					header: getAuthHeader(),
-					success: (res) => {
+					silent: true
+				}).then(res => {
+					const html = String(res.data || '')
+					if (isLoginRequiredHtml(html)) {
+						this.goLogin()
+						return
+					}
+					this.updateMessageBadge(html)
+				}).catch(err => {
+					console.log('[YAOHUO_MESSAGE_BADGE_REFRESH_FAIL]', err)
+				})
+			},
+			fetchData() {
+				this.loading = true
+				request({
+					url: 'https://yaohuo.me/',
+					failTip: '首页加载失败'
+				}).then(res => {
+					try {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html)) {
 							this.goLogin()
 							return
 						}
 						this.updateMessageBadge(html)
-					},
-					fail: err => {
-						console.log('[YAOHUO_MESSAGE_BADGE_REFRESH_FAIL]', err)
-					}
-				})
-			},
-			fetchData() {
-				this.loading = true
-				uni.request({
-					url: 'https://yaohuo.me/',
-					header: getAuthHeader(),
-					success: (res) => {
-						try {
-							const html = String(res.data || '')
-							if (isLoginRequiredHtml(html)) {
-								this.goLogin()
-								return
+						let newArr = []
+						const listMatch = html.match(/<div class=["']list["']>([\s\S]*?)<\/div>/i)
+						if (listMatch) {
+							const linkReg = /<a[^>]+href=["']([^"']*bbs-(\d+)\.html[^"']*)["'][^>]*>([\s\S]*?)<\/a>/ig
+							let linkMatch
+							while ((linkMatch = linkReg.exec(listMatch[1])) && newArr.length < 8) {
+								newArr.push({
+									id: linkMatch[2],
+									title: linkMatch[3].replace(/<[^>]+>/g, '')
+								})
 							}
-							this.updateMessageBadge(html)
-							let newArr = []
-							const listMatch = html.match(/<div class=["']list["']>([\s\S]*?)<\/div>/i)
-							if (listMatch) {
-								const linkReg = /<a[^>]+href=["']([^"']*bbs-(\d+)\.html[^"']*)["'][^>]*>([\s\S]*?)<\/a>/ig
-								let linkMatch
-								while ((linkMatch = linkReg.exec(listMatch[1])) && newArr.length < 8) {
-									newArr.push({
-										id: linkMatch[2],
-										title: linkMatch[3].replace(/<[^>]+>/g, '')
-									})
-								}
-							}
-							this.newArr = newArr
-							this.recommedArr = this.parseHomeAds(html)
-							this.extraObj = {}
-						} catch (e) {}
-					},
-					fail: () => {
-						uni.showToast({
-							title: '首页加载失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
-						this.loading = false
-						uni.stopPullDownRefresh()
+						}
+						this.newArr = newArr
+						this.recommedArr = this.parseHomeAds(html)
+						this.extraObj = {}
+					} catch (e) {
+						console.log('[YAOHUO_HOME_PARSE_FAIL]', e)
 					}
+				}).catch(() => {}).then(() => {
+					this.loading = false
+					uni.stopPullDownRefresh()
 				})
 			},
 			gridChange(e) {

@@ -28,9 +28,11 @@
 <script>
 	import {
 		clearAuthCookie,
-		getAuthHeader,
 		isLoginRequiredHtml
 	} from '@/utils/auth.js'
+	import {
+		request
+	} from '@/utils/request.js'
 	import {
 		buildPageUrl,
 		parseGuestbookPage
@@ -232,13 +234,14 @@
 				const requestSort = this.sort
 				const requestPage = this.page
 				this.loading = true
-				uni.request({
+				request({
 					url,
-					header: getAuthHeader({
+					header: {
 						Referer: this.getRefererUrl(url),
 						Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-					}),
-					success: res => {
+					},
+					silent: true
+				}).then(res => {
 						const html = this.decodeResponseHtml(res.data)
 						if (isLoginRequiredHtml(html)) {
 							return this.goLogin()
@@ -287,19 +290,16 @@
 						if (data.items.length || data.nextPageUrl || data.sortUrls && (data.sortUrls['0'] || data.sortUrls['1'])) {
 							this.currentUrl = url
 						}
-					},
-					fail: () => {
+				}).catch(() => {
 						if (this.page > 1) this.page--
 						this.status = 'more'
-					},
-					complete: () => {
+				}).then(() => {
 						this.loading = false
 						uni.stopPullDownRefresh()
 						if (this.pendingRefresh) {
 							this.pendingRefresh = false
 							this.fetchData()
 						}
-					}
 				})
 			},
 			openUser(item) {

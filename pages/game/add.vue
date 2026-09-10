@@ -43,9 +43,11 @@
 <script>
 	import {
 		clearAuthCookie,
-		getAuthHeader,
 		isLoginRequiredHtml
 	} from '@/utils/auth.js'
+	import {
+		request
+	} from '@/utils/request.js'
 	import {
 		openInBrowser
 	} from '@/utils/browser.js'
@@ -129,26 +131,18 @@
 				uni.showLoading({
 					title: '加载中'
 				})
-				uni.request({
+				request({
 					url: this.url,
-					header: getAuthHeader(),
-					success: res => {
+					failTip: '加载失败'
+				}).then(res => {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html)) {
 							return this.goLogin()
 						}
 						this.applyHtml(html)
-					},
-					fail: () => {
-						uni.showToast({
-							title: '加载失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).catch(() => {}).then(() => {
 						this.loading = false
 						uni.hideLoading()
-					}
 				})
 			},
 			applyHtml(html) {
@@ -233,15 +227,16 @@
 					bt: '确 定'
 				})
 				this.submitting = true
-				uni.request({
+				request({
 					url: this.formInfo.action || this.url,
 					method: 'POST',
-					header: getAuthHeader({
+					header: {
 						'Content-Type': 'application/x-www-form-urlencoded',
 						'Referer': this.url
-					}),
+					},
 					data: this.formEncode(payload),
-					success: res => {
+					failTip: '发起失败'
+				}).then(res => {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html)) {
 							return this.goLogin()
@@ -270,16 +265,8 @@
 						} else {
 							this.applyHtml(html)
 						}
-					},
-					fail: () => {
-						uni.showToast({
-							title: '发起失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).catch(() => {}).then(() => {
 						this.submitting = false
-					}
 				})
 			},
 			formEncode(data) {

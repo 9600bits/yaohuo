@@ -106,9 +106,11 @@
 <script>
 	import {
 		clearAuthCookie,
-		getAuthHeader,
 		isLoginRequiredHtml
 	} from '@/utils/auth.js'
+	import {
+		request
+	} from '@/utils/request.js'
 	import {
 		absoluteYaohuoUrl
 	} from '@/utils/html.js'
@@ -245,28 +247,20 @@
 				uni.showLoading({
 					title: '加载中'
 				})
-				uni.request({
+				request({
 					url: this.getModeUrl(mode),
-					header: getAuthHeader(),
-					success: res => {
+					failTip: '加载失败'
+				}).then(res => {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html)) {
 							return this.goLogin()
 						}
 						this.cache[mode] = html
 						this.applyData(mode, html)
-					},
-					fail: () => {
-						uni.showToast({
-							title: '加载失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).catch(() => {}).then(() => {
 						this.loading = false
 						uni.hideLoading()
 						uni.stopPullDownRefresh()
-					}
 				})
 			},
 			applyData(mode, html) {
@@ -334,10 +328,10 @@
 				const requestUrl = this.getChatRequestUrl()
 				const requestedPage = this.chat.page
 				this.chat.loading = true
-				uni.request({
+				request({
 					url: requestUrl,
-					header: getAuthHeader(),
-					success: res => {
+					failTip: '聊天加载失败'
+				}).then(res => {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html)) {
 							return this.goLogin()
@@ -349,19 +343,12 @@
 							count: this.chat.chats.length,
 							nextPageUrl: this.chat.nextPageUrl
 						})
-					},
-					fail: () => {
+				}).catch(() => {
 						if (requestedPage > 1) {
 							this.chat.page = requestedPage - 1
 						}
-						uni.showToast({
-							title: '聊天加载失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).then(() => {
 						this.chat.loading = false
-					}
 				})
 			},
 			applyChatPage(html, requestUrl, page) {
@@ -410,15 +397,16 @@
 				console.log('[YAOHUO_GAME_CHAT_SEND]', {
 					contentLength: content.length
 				})
-				uni.request({
+				request({
 					url: this.chat.formAction || 'https://yaohuo.me/games/chat/book_re.aspx',
 					method: 'POST',
-					header: getAuthHeader({
+					header: {
 						'Content-Type': 'application/x-www-form-urlencoded',
 						'Referer': 'https://yaohuo.me/games/chuiniu/'
-					}),
+					},
 					data: this.formEncode(payload),
-					success: res => {
+					failTip: '发言失败'
+				}).then(res => {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html)) {
 							return this.goLogin()
@@ -450,16 +438,8 @@
 							title: data.tip || '发表成功',
 							icon: 'success'
 						})
-					},
-					fail: () => {
-						uni.showToast({
-							title: '发言失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).catch(() => {}).then(() => {
 						this.chat.sending = false
-					}
 				})
 			},
 			formEncode(data) {

@@ -52,7 +52,7 @@
 		},
 		onPullDownRefresh() {
 			if (this.$refs.postList) {
-				this.$refs.postList.refreshData()
+				this.$refs.postList.refreshData(true)
 			} else {
 				uni.stopPullDownRefresh()
 			}

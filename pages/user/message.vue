@@ -11,9 +11,11 @@
 <script>
 	import {
 		clearAuthCookie,
-		getAuthHeader,
 		isLoginRequiredHtml
 	} from '@/utils/auth.js'
+	import {
+		request
+	} from '@/utils/request.js'
 	import {
 		stripHtml
 	} from '@/utils/html.js'
@@ -46,10 +48,10 @@
 		methods: {
 			fetchForm() {
 				this.formLoading = true
-				uni.request({
+				request({
 					url: this.url,
-					header: getAuthHeader(),
-					success: res => {
+					silent: true
+				}).then(res => {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html)) {
 							return this.goLogin()
@@ -62,10 +64,8 @@
 								title: form.title.replace(/\s*-\s*妖火网.*/, '')
 							})
 						}
-					},
-					complete: () => {
+				}).catch(() => {}).then(() => {
 						this.formLoading = false
-					}
 				})
 			},
 			sendMessage() {
@@ -88,15 +88,16 @@
 					g: this.fields.g || '发送消息'
 				})
 				this.loading = true
-				uni.request({
+				request({
 					url: this.action,
 					method: 'POST',
-					header: getAuthHeader({
+					header: {
 						Referer: this.url,
 						'Content-Type': 'application/x-www-form-urlencoded'
-					}),
+					},
 					data,
-					success: res => {
+					failTip: '发送失败'
+				}).then(res => {
 						const text = stripHtml(String(res.data || ''))
 						if (/发送信息成功|发送成功|成功/.test(text)) {
 							this.content = ''
@@ -112,16 +113,8 @@
 							content: text.slice(0, 160) || '服务器未返回明确结果',
 							showCancel: false
 						})
-					},
-					fail: () => {
-						uni.showToast({
-							title: '发送失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).catch(() => {}).then(() => {
 						this.loading = false
-					}
 				})
 			},
 			goLogin() {

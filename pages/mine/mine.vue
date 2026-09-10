@@ -118,9 +118,11 @@
 <script>
 	import {
 		clearAuthCookie,
-		getAuthHeader,
 		isLoginRequiredHtml
 	} from '@/utils/auth.js'
+	import {
+		request
+	} from '@/utils/request.js'
 	import {
 		absoluteYaohuoUrl,
 		extractClassBlocks,
@@ -286,10 +288,10 @@
 				uni.showLoading({
 					title: '加载资料'
 				})
-				uni.request({
+				request({
 					url: 'https://yaohuo.me/myfile.aspx',
-					header: getAuthHeader(),
-					success: res => {
+					failTip: '资料加载失败'
+				}).then(res => {
 						const html = String(res.data || '')
 						if (isLoginRequiredHtml(html)) {
 							return this.goLogin()
@@ -299,18 +301,10 @@
 						if (profile.id) {
 							uni.setStorageSync('yaohuoUserId', profile.id)
 						}
-					},
-					fail: () => {
-						uni.showToast({
-							title: '资料加载失败',
-							icon: 'none'
-						})
-					},
-					complete: () => {
+				}).catch(() => {}).then(() => {
 						this.loading = false
 						uni.hideLoading()
 						uni.stopPullDownRefresh()
-					}
 				})
 			},
 			parseProfile(html) {
