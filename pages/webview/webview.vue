@@ -25,6 +25,9 @@
 				webviewHookTimer: null,
 				webviewHookAttempts: 0,
 				webviewHooked: false,
+				gestureWebview: null,
+				gestureHandlers: null,
+				gestureStart: null,
 				loginMode: false,
 				checking: false,
 				redirecting: false
@@ -46,6 +49,7 @@
 		onUnload() {
 			this.stopLoginCheck()
 			this.stopWebviewHookTimer()
+			this.unbindWebviewGestures()
 		},
 		methods: {
 			openCurrentUrlInBrowser() {
@@ -92,6 +96,7 @@
 						const currentUrl = child.getURL ? child.getURL() : ''
 						this.redirectIfNativePost(currentUrl)
 					})
+					this.bindWebviewGestures(child)
 					return
 				}
 				if (this.webviewHookAttempts < 10) {
@@ -114,6 +119,83 @@
 				}
 				// #endif
 				return null
+			},
+			getTouchPoint(event) {
+				const touches = event && (event.touches || event.changedTouches)
+				const touch = touches && touches.length ? touches[0] : event
+				if (!touch) {
+					return null
+				}
+				const x = Number(touch.pageX !== undefined ? touch.pageX :
+					touch.clientX !== undefined ? touch.clientX : touch.screenX)
+				const y = Number(touch.pageY !== undefined ? touch.pageY :
+					touch.clientY !== undefined ? touch.clientY : touch.screenY)
+				return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null
+			},
+			bindWebviewGestures(child) {
+				// #ifdef APP-PLUS
+				if (this.loginMode || this.redirecting || this.gestureWebview === child ||
+					!child || typeof child.addEventListener !== 'function') {
+					return
+				}
+				const onStart = event => {
+					this.gestureStart = this.getTouchPoint(event)
+				}
+				const onMove = event => {
+					const start = this.gestureStart
+					const point = this.getTouchPoint(event)
+					if (!start || !point) {
+						return
+					}
+					const dx = point.x - start.x
+					const dy = point.y - start.y
+					if (Math.abs(dy) > 36 && Math.abs(dy) > Math.abs(dx) * 0.8) {
+						this.gestureStart = null
+					}
+				}
+				const onEnd = event => {
+					const start = this.gestureStart
+					this.gestureStart = null
+					const point = this.getTouchPoint(event)
+					if (!start || !point) {
+						return
+					}
+					const dx = point.x - start.x
+					const dy = point.y - start.y
+					if (Math.abs(dx) < 90 || Math.abs(dx) < Math.abs(dy) * 1.4) {
+						return
+					}
+					if (dx < 0 && typeof child.canForward === 'function' && child.canForward()) {
+						child.forward()
+					} else if (dx > 0 && typeof child.canBack === 'function' && child.canBack()) {
+						child.back()
+					}
+				}
+				const onCancel = () => {
+					this.gestureStart = null
+				}
+				child.addEventListener('touchstart', onStart)
+				child.addEventListener('touchmove', onMove)
+				child.addEventListener('touchend', onEnd)
+				child.addEventListener('touchcancel', onCancel)
+				this.gestureWebview = child
+				this.gestureHandlers = { onStart, onMove, onEnd, onCancel }
+				// #endif
+			},
+			unbindWebviewGestures() {
+				// #ifdef APP-PLUS
+				const child = this.gestureWebview
+				const handlers = this.gestureHandlers
+				if (child && handlers && typeof child.removeEventListener === 'function') {
+					child.removeEventListener('touchstart', handlers.onStart)
+					child.removeEventListener('touchmove', handlers.onMove)
+					child.removeEventListener('touchend', handlers.onEnd)
+					child.removeEventListener('touchcancel', handlers.onCancel)
+				}
+				this.gestureWebview = null
+				this.gestureHandlers = null
+				this.gestureStart = null
+				// #endif
 			},
 			stopWebviewHookTimer() {
 				if (this.webviewHookTimer) {
