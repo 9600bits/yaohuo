@@ -25,9 +25,6 @@
 				webviewHookTimer: null,
 				webviewHookAttempts: 0,
 				webviewHooked: false,
-				gestureWebview: null,
-				gestureHandlers: null,
-				gestureStart: null,
 				loginMode: false,
 				checking: false,
 				redirecting: false
@@ -49,7 +46,6 @@
 		onUnload() {
 			this.stopLoginCheck()
 			this.stopWebviewHookTimer()
-			this.unbindWebviewGestures()
 		},
 		methods: {
 			openCurrentUrlInBrowser() {
@@ -95,8 +91,9 @@
 					child.addEventListener('loaded', () => {
 						const currentUrl = child.getURL ? child.getURL() : ''
 						this.redirectIfNativePost(currentUrl)
+						this.installWebviewGestures(child)
 					})
-					this.bindWebviewGestures(child)
+					this.installWebviewGestures(child)
 					return
 				}
 				if (this.webviewHookAttempts < 10) {
@@ -120,81 +117,46 @@
 				// #endif
 				return null
 			},
-			getTouchPoint(event) {
-				const touches = event && (event.touches || event.changedTouches)
-				const touch = touches && touches.length ? touches[0] : event
-				if (!touch) {
-					return null
-				}
-				const x = Number(touch.pageX !== undefined ? touch.pageX :
-					touch.clientX !== undefined ? touch.clientX : touch.screenX)
-				const y = Number(touch.pageY !== undefined ? touch.pageY :
-					touch.clientY !== undefined ? touch.clientY : touch.screenY)
-				return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null
-			},
-			bindWebviewGestures(child) {
+			installWebviewGestures(child) {
 				// #ifdef APP-PLUS
-				if (this.loginMode || this.redirecting || this.gestureWebview === child ||
-					!child || typeof child.addEventListener !== 'function') {
+				if (this.loginMode || this.redirecting || !child || typeof child.evalJS !== 'function') {
 					return
 				}
-				const onStart = event => {
-					this.gestureStart = this.getTouchPoint(event)
-				}
-				const onMove = event => {
-					const start = this.gestureStart
-					const point = this.getTouchPoint(event)
-					if (!start || !point) {
-						return
+				child.evalJS(`(function () {
+					if (window.__yaohuoSwipeNavigationInstalled) return;
+					window.__yaohuoSwipeNavigationInstalled = true;
+					var start = null;
+					function point(event) {
+						var touches = event.touches && event.touches.length ? event.touches : event.changedTouches;
+						var touch = touches && touches.length ? touches[0] : null;
+						return touch ? { x: touch.clientX, y: touch.clientY } : null;
 					}
-					const dx = point.x - start.x
-					const dy = point.y - start.y
-					if (Math.abs(dy) > 36 && Math.abs(dy) > Math.abs(dx) * 0.8) {
-						this.gestureStart = null
-					}
-				}
-				const onEnd = event => {
-					const start = this.gestureStart
-					this.gestureStart = null
-					const point = this.getTouchPoint(event)
-					if (!start || !point) {
-						return
-					}
-					const dx = point.x - start.x
-					const dy = point.y - start.y
-					if (Math.abs(dx) < 90 || Math.abs(dx) < Math.abs(dy) * 1.4) {
-						return
-					}
-					if (dx < 0 && typeof child.canForward === 'function' && child.canForward()) {
-						child.forward()
-					} else if (dx > 0 && typeof child.canBack === 'function' && child.canBack()) {
-						child.back()
-					}
-				}
-				const onCancel = () => {
-					this.gestureStart = null
-				}
-				child.addEventListener('touchstart', onStart)
-				child.addEventListener('touchmove', onMove)
-				child.addEventListener('touchend', onEnd)
-				child.addEventListener('touchcancel', onCancel)
-				this.gestureWebview = child
-				this.gestureHandlers = { onStart, onMove, onEnd, onCancel }
-				// #endif
-			},
-			unbindWebviewGestures() {
-				// #ifdef APP-PLUS
-				const child = this.gestureWebview
-				const handlers = this.gestureHandlers
-				if (child && handlers && typeof child.removeEventListener === 'function') {
-					child.removeEventListener('touchstart', handlers.onStart)
-					child.removeEventListener('touchmove', handlers.onMove)
-					child.removeEventListener('touchend', handlers.onEnd)
-					child.removeEventListener('touchcancel', handlers.onCancel)
-				}
-				this.gestureWebview = null
-				this.gestureHandlers = null
-				this.gestureStart = null
+					document.addEventListener('touchstart', function (event) {
+						start = event.touches && event.touches.length === 1 ? point(event) : null;
+					}, { passive: true, capture: true });
+					document.addEventListener('touchmove', function (event) {
+						var current = point(event);
+						if (!start || !current) return;
+						var dx = current.x - start.x;
+						var dy = current.y - start.y;
+						if (Math.abs(dy) > 36 && Math.abs(dy) > Math.abs(dx) * 0.8) start = null;
+					}, { passive: true, capture: true });
+					document.addEventListener('touchend', function (event) {
+						var initial = start;
+						var current = point(event);
+						start = null;
+						if (!initial || !current) return;
+						var dx = current.x - initial.x;
+						var dy = current.y - initial.y;
+						if (Math.abs(dx) < 90 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
+						if (dx < 0) history.forward();
+						else history.back();
+					}, { passive: true, capture: true });
+					document.addEventListener('touchcancel', function () { start = null; }, {
+						passive: true,
+						capture: true
+					});
+				})();`)
 				// #endif
 			},
 			stopWebviewHookTimer() {
