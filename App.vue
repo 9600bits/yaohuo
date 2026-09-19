@@ -4,9 +4,13 @@
 		stopReplyPolling,
 		onReplyNotificationClick
 	} from '@/utils/notify.js'
+	import {
+		clearGestureHistory
+	} from '@/utils/gesture.js'
 
 	export default {
 		onLaunch: function() {
+			clearGestureHistory()
 			this.registerReplyNotificationClick()
 		},
 		onShow: function() {

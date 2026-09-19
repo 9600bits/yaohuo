@@ -1,8 +1,16 @@
 import App from './App'
+import {
+    installNativePageGestures
+} from './utils/gesture.js'
 
 // #ifndef VUE3
 import Vue from 'vue'
 Vue.config.productionTip = false
+Vue.mixin({
+    onReady() {
+        installNativePageGestures(this)
+    }
+})
 App.mpType = 'app'
 const app = new Vue({
     ...App
